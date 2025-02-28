@@ -1,10 +1,6 @@
 cmake_minimum_required (VERSION 3.16)
 
-project (GraphSegmentation)
-
-# The version number.
-set (GraphSegmentation_VERSION_MAJOR 0)
-set (GraphSegmentation_VERSION_MINOR 1)
+project (${SKBUILD_PROJECT_NAME} VERSION ${SKBUILD_PROJECT_VERSION} LANGUAGES CXX)
 
 # Nicer structure for binary files
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)

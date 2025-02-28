@@ -424,12 +424,20 @@ void write_tracks(const std::vector<std::vector<int>>& tracks, const std::string
     }
 }
 
-int main() {
+int main(int argc, char **argv)
+{
+    // get the dot file name from the command line.
+    if (argc < 2) {
+        std::cerr << "Usage: " << argv[0] << " <dot_file>" << std::endl;
+        return 1;
+    }
+    std::string dot_file_name(argv[1]);
+
     // Check boost graph:
     // https://www.boost.org/doc/libs/1_86_0/libs/graph/doc/table_of_contents.html
     // Create a directed graph (DiGraph) using Boost's adjacency_list
     // copied from /global/cfs/cdirs/m3443/usr/xju/ITk/For2023Paper/metric_learning_testing/debug/debug_graph.dot
-    std::ifstream dot_file("debug_graph.dot");
+    std::ifstream dot_file(dot_file_name);
     if (!dot_file) {
         std::cerr << "Error: Unable to open file." << std::endl;
         return 1;

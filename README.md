@@ -19,6 +19,4 @@ cmake --build build
 ```
 
 ### Usage
-Download the data from [here](https://portal.nersc.gov/project/m3363/ml4sc/trackml/).
-Then run the following command to preprocess the data:
-```bash
+Download the data `python download_data.py`. And then `./build/bin/walk_through data/debug_graph.dot`.

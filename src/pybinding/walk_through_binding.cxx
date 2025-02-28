@@ -36,7 +36,7 @@ Graph convert_nx_to_bgl(pybind11::object nx_graph) {
 }
 
 // Pybind11 module
-PYBIND11_MODULE(my_graph_module, m) {
+PYBIND11_MODULE(graph_segment, m) {
     m.doc() = "Pybind11 module for processing graphs";
 
     m.def("get_tracks", [](pybind11::object nx_graph, double cc_cut, double th_min, double th_add) {
