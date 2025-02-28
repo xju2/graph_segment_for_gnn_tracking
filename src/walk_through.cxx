@@ -8,319 +8,375 @@
 #include <boost/graph/iteration_macros.hpp>
 #include <iostream>
 #include <vector>
-#include <set>
-#include <map>
 #include <algorithm>
 #include <functional>
 #include <fstream>
 #include <string>
-#include <utility>
 #include <chrono>
 
-// Define the graph using Boost's adjacency_list
-typedef boost::property<boost::vertex_name_t, int64_t > vertex_p;
+// -- Original Boost-based definitions --
+typedef boost::property<boost::vertex_name_t, int64_t> vertex_p;
 typedef boost::property<boost::edge_weight_t, double> edge_p;
+
 typedef boost::adjacency_list<
     boost::vecS, boost::vecS,
     boost::bidirectionalS,
     vertex_p,
     edge_p,
-    boost::no_property> Graph;
+    boost::no_property
+> Graph;
 
 typedef boost::adjacency_list<
     boost::vecS, boost::vecS,
     boost::undirectedS,
     vertex_p,
     boost::no_property,
-    boost::no_property> UndirectedGraph;
+    boost::no_property
+> UndirectedGraph;
 
 typedef boost::graph_traits<Graph>::vertex_descriptor Vertex;
 typedef boost::graph_traits<Graph>::edge_descriptor Edge;
 using vertex_t = int32_t;
 
-
+//------------------------------------------------------------------------------
+// 1) Functions handling undirected connected components to find "simple paths"
+//------------------------------------------------------------------------------
 std::vector<std::vector<int>> get_simple_path(const UndirectedGraph& G)
 {
-    std::vector<std::vector<int>> final_tracks;
-    // Get weakly connected components
+    // Weakly connected components (well, 'connected' because G is undirected)
     std::vector<vertex_t> component(num_vertices(G));
     size_t num_components = boost::connected_components(G, &component[0]);
 
-    std::vector<std::vector<Vertex> > component_groups(num_components);
+    // Group vertices by component ID
+    std::vector<std::vector<Vertex>> component_groups(num_components);
     for(size_t i = 0; i < component.size(); ++i) {
-        component_groups[component[i]].push_back(i);
+        component_groups[component[i]].push_back(static_cast<Vertex>(i));
     }
 
-    // loop over the sorted groups.
+    std::vector<std::vector<int>> final_tracks;
+    final_tracks.reserve(num_components);
+
+    // For each component, check if it's a simple chain (all nodes deg <= 2)
     for(const auto& sub_graph : component_groups) {
-        if (sub_graph.size() < 3) {
-            continue;
-        }
+        if (sub_graph.size() < 3) continue;
+
         bool is_signal_path = true;
-        // Check if all nodes in the sub_graph are signal paths
-        for (int node : sub_graph) {
+        for (auto node : sub_graph) {
             if (degree(node, G) > 2) {
                 is_signal_path = false;
                 break;
             }
         }
+        if (!is_signal_path) continue;
 
-        // If it's a signal path, collect the hit_ids
-        if (is_signal_path) {
-            std::vector<int> track;
-            for (int node : sub_graph) {
-                int hit_id = boost::get(boost::vertex_name, G, node);
-                track.push_back(hit_id);
-            }
-            final_tracks.push_back(track);
+        // Collect hit IDs
+        std::vector<int> track;
+        track.reserve(sub_graph.size());
+        for (auto node : sub_graph) {
+            int hit_id = boost::get(boost::vertex_name, G, node);
+            track.push_back(hit_id);
         }
+        final_tracks.push_back(std::move(track));
     }
     return final_tracks;
 }
 
-// Function to find the next hits
+//------------------------------------------------------------------------------
+// 2) Replace repeated out_edges(...) calls with a local adjacency list
+//------------------------------------------------------------------------------
+struct NeighborInfo {
+    int neighbor;    // neighbor vertex index in newG
+    double weight;   // edge weight
+};
+
+//------------------------------------------------------------------------------
+// 3) Updated find_next_node using the adjacency list
+//------------------------------------------------------------------------------
 std::vector<int> find_next_node(
-    const Graph &G,
-    int current_hit,
+    int current_vertex,
     double th_min,
     double th_add,
-    const std::vector<int>& all_hit_ids,
-    bool debug = false
-) {
-    std::vector<int> next_hits;
-    auto [begin, end] = boost::out_edges(current_hit, G);
-
+    const std::vector<std::vector<NeighborInfo>>& adjacency_list,
+    const std::vector<bool> &used_vertex
+)
+{
+    // Gather candidate neighbors & scores
+    const auto& neighbors = adjacency_list[current_vertex];
     std::vector<std::pair<int, double>> neighbors_scores;
-    for (auto it = begin; it != end; ++it) {
-        int neighbor = target(*it, G);
-        double score = boost::get(boost::edge_weight, G, *it);
-        if (neighbor == current_hit || score <= th_min) continue;
-        neighbors_scores.push_back({neighbor, score});
-    }
+    neighbors_scores.reserve(neighbors.size());
 
+    for (auto &nb : neighbors) {
+        if (nb.weight <= th_min) continue;         // skip low-score edges
+        if (nb.neighbor == current_vertex) continue; // skip self-loop
+        // We do NOT remove used hits here yet; do that after scoring
+        neighbors_scores.push_back({nb.neighbor, nb.weight});
+    }
     if (neighbors_scores.empty()) return {};
 
-    // Find the best neighbor
-    auto best_neighbor = *std::max_element(neighbors_scores.begin(), neighbors_scores.end(),
-                                      [](const std::pair<int, double> &a, const std::pair<int, double> &b) {
-                                          return a.second < b.second;
-                                      });
+    // Find the single "best neighbor" by max score
+    auto best_neighbor_it = std::max_element(neighbors_scores.begin(), neighbors_scores.end(),
+                                             [](auto &a, auto &b){
+                                                 return a.second < b.second;
+                                             });
 
-    // Add neighbors with score > th_add
-    for (const auto &neighbor : neighbors_scores) {
-        if (neighbor.second > th_add) {
-            next_hits.push_back(neighbor.first);
+    // Collect neighbors above th_add
+    std::vector<int> next_hits;
+    next_hits.reserve(neighbors_scores.size());
+    for (auto &p : neighbors_scores) {
+        if (p.second > th_add) {
+            next_hits.push_back(p.first);
         }
     }
-
-    // If no neighbors were added, add the best neighbor
+    // If none above th_add, pick just the best
     if (next_hits.empty()) {
-        next_hits.push_back(best_neighbor.first);
+        next_hits.push_back(best_neighbor_it->first);
     }
 
+    // Finally remove any that are already used
+    // (You could also do this before picking best neighbor, depending on logic.)
+    next_hits.erase(std::remove_if(next_hits.begin(), next_hits.end(),
+                   [&](int v){ return used_vertex[v]; }),
+                   next_hits.end());
     return next_hits;
 }
 
-// Build roads (tracks) using Boost Graph
+//------------------------------------------------------------------------------
+// 4) Updated build_roads to use adjacency_list & used_vertex
+//------------------------------------------------------------------------------
 std::vector<std::vector<int>> build_roads(
-    const Graph &G,
-    int starting_node,
-    std::function<std::vector<int>(const Graph&, int, bool)> next_node_fn,
-    std::map<int64_t, bool>& used_hits, const std::vector<int>& all_hit_ids,
-    bool debug = false
-) {
-    std::vector<std::vector<int>> path = {{starting_node}};
+    int starting_vertex,
+    std::function<std::vector<int>(int)> next_node_fn,
+    std::vector<bool> &used_vertex
+)
+{
+    // 'path' is a list of partial paths under expansion
+    std::vector<std::vector<int>> path = {{starting_vertex}};
 
     while (true) {
         std::vector<std::vector<int>> new_path;
-        bool is_all_done = true;
+        new_path.reserve(path.size()); // optional but helpful
+        bool all_done = true;
 
-        // loop over each path and extend it.
-        for (const auto &pp : path) {
-            int start = pp.back();
-
-            if (start == -1) {
-                new_path.push_back(pp);
+        for (const auto &p : path) {
+            int last_v = p.back();
+            if (last_v == -1) {
+                // already ended path
+                new_path.push_back(p);
                 continue;
             }
 
-            auto next_hits = next_node_fn(G, start, debug);
-            // remove used hits.
-            next_hits.erase(std::remove_if(next_hits.begin(), next_hits.end(),
-                [&](int node_id) {
-                    int hit_id = boost::get(boost::vertex_name, G, node_id);
-                    return used_hits[hit_id];
-                }), next_hits.end());
-
-            if (next_hits.empty()) {
-                new_path.push_back(pp);
-            } else {
-                is_all_done = false;
-                for (int nh : next_hits) {
-                    std::vector<int> pp_extended = pp;
-                    pp_extended.push_back(nh);
-                    new_path.push_back(pp_extended);
+            std::vector<int> candidates = next_node_fn(last_v);
+            if (candidates.empty()) {
+                new_path.push_back(p);
+            }
+            else {
+                // We branch out for each candidate
+                all_done = false;
+                for (auto c : candidates) {
+                    std::vector<int> extended = p;
+                    extended.push_back(c);
+                    new_path.push_back(std::move(extended));
                 }
             }
         }
 
-        path = new_path;
-        if (is_all_done) break;
+        path = std::move(new_path);
+        if (all_done) break;
     }
     return path;
 }
 
-Graph cleanup_graph(const Graph& G, double cc_cut) {
-    // remove fake edges and isolated vertices.
+//------------------------------------------------------------------------------
+// 5) Cleanup graph: remove isolated vertices & edges below a threshold
+//------------------------------------------------------------------------------
+Graph cleanup_graph(const Graph& G, double cc_cut)
+{
     Graph newG;
+    // Map old vertex -> new vertex
+    std::vector<int> old_to_new(num_vertices(G), -1);
 
-    // add vertices of G to newG, including the vertex name.
-    std::map<int, int> old_vertex_to_new;
-    int old_vertex_id = 0;
-    int new_vertex_id = 0;
+    int old_id = 0;
+    int new_id = 0;
     for (auto v : boost::make_iterator_range(vertices(G))) {
-        auto name = boost::get(boost::vertex_name, G, v);
+        // skip isolated
         if (in_degree(v, G) == 0 && out_degree(v, G) == 0) {
-            old_vertex_id ++;
-            continue; // remove isolated vertices.
+            old_id++;
+            continue;
         }
+        // create new vertex
+        auto name = boost::get(boost::vertex_name, G, v);
         add_vertex(name, newG);
-        old_vertex_to_new[old_vertex_id] = new_vertex_id;
-        new_vertex_id ++;
-        old_vertex_id ++;
+        old_to_new[old_id++] = new_id++;
     }
-    // add edges of G to newG.
-    auto [edge_b, edge_e] = boost::edges(G);
-    for (auto it = edge_b; it != edge_e; ++it) {
-        int source = boost::source(*it, G);
-        int target = boost::target(*it, G);
-        source = old_vertex_to_new[source];
-        target = old_vertex_to_new[target];
-        double weight = boost::get(boost::edge_weight, G, *it);
-        if (weight <= cc_cut) continue;
-        add_edge(source, target, weight, newG);
+
+    // add edges with weight > cc_cut
+    auto edges_range = boost::edges(G);
+    for (auto it = edges_range.first; it != edges_range.second; ++it) {
+        int s = static_cast<int>(boost::source(*it, G));
+        int t = static_cast<int>(boost::target(*it, G));
+        double w = boost::get(boost::edge_weight, G, *it);
+        if (w <= cc_cut) continue;
+
+        int ns = old_to_new[s];
+        int nt = old_to_new[t];
+        if (ns < 0 || nt < 0) continue; // was isolated
+        add_edge(ns, nt, w, newG);
     }
     return newG;
 }
 
-// Get tracks using Boost's topological_sort
+//------------------------------------------------------------------------------
+// 6) get_tracks: orchestrates the pipeline and uses local adjacency structures
+//------------------------------------------------------------------------------
 std::vector<std::vector<int>> get_tracks(const Graph &G, double cc_cut, double th_min, double th_add)
 {
+    // 1) Prune the original graph
     Graph newG = cleanup_graph(G, cc_cut);
-    std::map<int64_t, bool> used_hits;
-    std::map<int, Vertex> hit_id_to_vertex;
-    std::vector<int> all_hit_ids;
-    for (auto v : boost::make_iterator_range(vertices(newG))) {
-        auto name = boost::get(boost::vertex_name, newG, v);
-        used_hits[name] = false;
-        hit_id_to_vertex[name] = v;
-        all_hit_ids.push_back(name);
-    }
+    size_t nV = boost::num_vertices(newG);
 
-    UndirectedGraph ugraph;
-    // add vertices from newG to ugraph.
-    for (auto v : boost::make_iterator_range(vertices(newG))) {
-        auto name = boost::get(boost::vertex_name, newG, v);
-        add_vertex(name, ugraph);
-    }
-    // add edges from newG to ugraph.
-    auto [edge_b, edge_e] = boost::edges(newG);
-    for (auto it = edge_b; it != edge_e; ++it) {
-        int source = boost::source(*it, newG);
-        int target = boost::target(*it, newG);
-        add_edge(source, target, ugraph);
-    }
+    // 2) Build a local adjacency list: adjacency_list[v] => list of (neighbor, weight)
+    std::vector<std::vector<NeighborInfo>> adjacency_list(nV);
+    {
+        auto edges_range = boost::edges(newG);
+        adjacency_list.reserve(nV); // optional
+        for (auto it = edges_range.first; it != edges_range.second; ++it) {
+            auto s = boost::source(*it, newG);
+            auto t = boost::target(*it, newG);
+            double w = boost::get(boost::edge_weight, newG, *it);
 
-    std::vector<std::vector<int>> sub_graphs = get_simple_path(ugraph);
-    // mark the used hits.
-    for (const auto& track : sub_graphs) {
-        for (int hit_id : track) {
-            used_hits[hit_id] = true;
+            // s, t are Vertex descriptors [0..nV-1], because newG has vecS
+            adjacency_list[s].push_back({static_cast<int>(t), w});
         }
     }
-    int num_simple_paths = sub_graphs.size();
 
-    // Perform topological sort using Boost's topological_sort function
-    // then find non-isolated vertices.
+    // 3) Store "hit ID" for each vertex, so we don't call get(vertex_name, ...)
+    std::vector<int> vertex_hit_id(nV);
+    for (size_t v = 0; v < nV; ++v) {
+        vertex_hit_id[v] = boost::get(boost::vertex_name, newG, static_cast<Vertex>(v));
+    }
+
+    // 4) Build an undirected copy for the "simple path" step
+    UndirectedGraph ugraph;
+    ugraph.m_vertices.reserve(nV); // vector-based optimization
+
+    for (size_t v = 0; v < nV; ++v) {
+        add_vertex(vertex_hit_id[v], ugraph);
+    }
+    {
+        auto edges_range = boost::edges(newG);
+        for (auto it = edges_range.first; it != edges_range.second; ++it) {
+            auto s = boost::source(*it, newG);
+            auto t = boost::target(*it, newG);
+            add_edge(s, t, ugraph);
+        }
+    }
+
+    // 5) Find "simple paths" in the undirected graph
+    std::vector<std::vector<int>> sub_graphs = get_simple_path(ugraph);
+
+    // 6) Mark used vertices in newG that appear in those simple paths
+    //    We'll track usage by "vertex index," so we need to invert: hit_id -> vertex
+    //    but we only have vertex -> hit_id. Let's build a simple map for that:
+    //    (Alternatively, you could do this right inside get_simple_path if you stored
+    //     the newly assigned vertex index instead of the original name.)
+    std::unordered_map<int, int> hit_id_to_vertex; // for quick usage check
+    hit_id_to_vertex.reserve(nV);
+    for (size_t v = 0; v < nV; ++v) {
+        hit_id_to_vertex[ vertex_hit_id[v] ] = static_cast<int>(v);
+    }
+
+    std::vector<bool> used_vertex(nV, false);
+    for (const auto& track : sub_graphs) {
+        for (int hid : track) {
+            if (hit_id_to_vertex.count(hid)) {
+                used_vertex[ hit_id_to_vertex[hid] ] = true;
+            }
+        }
+    }
+    int num_simple_paths = (int)sub_graphs.size();
+
+    // 7) Topological sort the pruned graph
     std::vector<Vertex> topo_order;
+    topo_order.reserve(nV);
     boost::topological_sort(newG, std::back_inserter(topo_order));
 
-    // Define the next_hit function
-    auto next_node_fn = [&](const Graph &G, int current_hit, bool debug) {
-        return find_next_node(G, current_hit, th_min, th_add, all_hit_ids, debug);
+    // We'll create a small lambda that, given a vertex index, returns next hits
+    auto next_node_fn = [&](int current_vertex) {
+        return find_next_node(current_vertex, th_min, th_add, adjacency_list, used_vertex);
     };
 
-    bool debug = false;
-    // Traverse the nodes in topological order
-    for(auto it = topo_order.rbegin(); it != topo_order.rend(); ++it) {
-        auto node_id = *it;
-        int hit_id = boost::get(boost::vertex_name, newG, node_id);
-        if (used_hits[hit_id]) continue;
+    // 8) Walk in reverse topo order and expand roads
+    for (auto it = topo_order.rbegin(); it != topo_order.rend(); ++it) {
+        int v = static_cast<int>(*it);
+        if (used_vertex[v]) continue; // skip if already used
 
-        // Build roads (tracks) starting from the current node
-        auto roads = build_roads(newG, node_id, next_node_fn, used_hits, all_hit_ids, debug);
+        // Build roads from this vertex
+        auto roads = build_roads(v, next_node_fn, used_vertex);
+        used_vertex[v] = true; // mark it used
 
-        used_hits[hit_id] = true;
-        if (roads.empty()) {
-            continue;
-        }
+        if (roads.empty()) continue;
 
-        // Find the longest road and remove the last element (-1)
-        std::vector<int>& longest_road = *std::max_element(roads.begin(), roads.end(),
-            [](const std::vector<int> &a, const std::vector<int> &b) {
-                return a.size() < b.size();
-            });
+        // Find the "longest" road among them
+        auto longest_it = std::max_element(roads.begin(), roads.end(),
+            [](auto &a, auto &b){ return a.size() < b.size(); });
 
-        if (longest_road.size() >= 3) {
+        if (longest_it->size() >= 3) {
+            // Copy to a track of "hit IDs"
             std::vector<int> track;
-            track.reserve(longest_road.size());
-            for (int node : longest_road) {
-                int hit_id = boost::get(boost::vertex_name, newG, node);
-                used_hits[hit_id] = true;
-                track.push_back(hit_id);
+            track.reserve(longest_it->size());
+            for (int vtx : *longest_it) {
+                used_vertex[vtx] = true;
+                track.push_back(vertex_hit_id[vtx]);
             }
-            sub_graphs.push_back(track);
+            sub_graphs.push_back(std::move(track));
         }
     }
-    std::cout << "From CC&&Walk: Number of tracks found by Walkthrough: " << sub_graphs.size() - num_simple_paths << std::endl;
+
+    // Optional: print or return how many new tracks we found
+    std::cout << "From CC&&Walk: Number of tracks found by Walkthrough: "
+              << sub_graphs.size() - num_simple_paths << std::endl;
+
     return sub_graphs;
 }
 
-void write_tracks(const std::vector<std::vector<int>>& tracks, const std::string& filename) {
+//------------------------------------------------------------------------------
+// 7) Write tracks to file
+//------------------------------------------------------------------------------
+void write_tracks(const std::vector<std::vector<int>>& tracks, const std::string& filename)
+{
     std::ofstream file(filename);
     if (!file) {
-        std::cerr << "Error: Unable to open file." << std::endl;
+        std::cerr << "Error: Unable to open file: " << filename << std::endl;
         return;
     }
-
+    // Each track: space-separated hit IDs, then -1 at end
     for (const auto &track : tracks) {
-        for (int hit_id : track) {
-            file << hit_id << " ";
+        for (int hid : track) {
+            file << hid << " ";
         }
         file << "-1 ";
     }
+    file << std::endl;
 }
 
+//------------------------------------------------------------------------------
+// 8) main
+//------------------------------------------------------------------------------
 int main(int argc, char **argv)
 {
-    // get the dot file name from the command line.
     if (argc < 2) {
         std::cerr << "Usage: " << argv[0] << " <dot_file>" << std::endl;
         return 1;
     }
     std::string dot_file_name(argv[1]);
 
-    // Check boost graph:
-    // https://www.boost.org/doc/libs/1_86_0/libs/graph/doc/table_of_contents.html
-    // Create a directed graph (DiGraph) using Boost's adjacency_list
-    // copied from /global/cfs/cdirs/m3443/usr/xju/ITk/For2023Paper/metric_learning_testing/debug/debug_graph.dot
+    // Load the graph from DOT
     std::ifstream dot_file(dot_file_name);
     if (!dot_file) {
-        std::cerr << "Error: Unable to open file." << std::endl;
+        std::cerr << "Error: Unable to open file " << dot_file_name << std::endl;
         return 1;
     }
 
-    // Define thresholds
     double cc_cut = 0.01, th_min = 0.1, th_add = 0.6;
 
     Graph G;
@@ -333,20 +389,26 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    std::cout <<"Input Graph: " << boost::num_vertices(G) << " vertices, " << boost::num_edges(G) << " edges." << std::endl;
+    // Print input stats
+    std::cout << "Input Graph: "
+              << boost::num_vertices(G) << " vertices, "
+              << boost::num_edges(G) << " edges.\n";
 
-    // Get tracks (subgraphs) and measure the time.
-    auto start_time = std::chrono::high_resolution_clock::now();
+    // Time the track building
+    auto start = std::chrono::high_resolution_clock::now();
     auto final_tracks = get_tracks(G, cc_cut, th_min, th_add);
-    auto end_time = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double, std::milli> elapsed_time = end_time - start_time;
+    auto end = std::chrono::high_resolution_clock::now();
+    double elapsed_ms = std::chrono::duration<double, std::milli>(end - start).count();
 
-    // Print the results
-    std::cout << "From CC&&Walk:: Total " << final_tracks.size() <<  " tracks" << std::endl;
-    std::cout << "Time taken: " << elapsed_time.count() << " ms" << std::endl;
-    std::cout << "From ACORN: " << "Number of tracks found by CC: 2949\nNumber of tracks found by Walkthrough: 1299" << std::endl;
-    std::cout << "From ACORN: Total  4248 tracks." << std::endl;
-    // Write the tracks to a file
+    // Summaries
+    std::cout << "From CC&&Walk:: Total " << final_tracks.size() <<  " tracks\n";
+    std::cout << "Time taken: " << elapsed_ms << " ms\n";
+    // Example final prints (numbers here are just placeholders):
+    std::cout << "From ACORN: Number of tracks found by CC: 2949\n"
+              << "From ACORN: Number of tracks found by Walkthrough: 1299\n"
+              << "From ACORN: Total 4248 tracks.\n";
+
+    // Write out final tracks
     write_tracks(final_tracks, "tracks.txt");
 
     return 0;
