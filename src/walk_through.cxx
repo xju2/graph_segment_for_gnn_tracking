@@ -317,7 +317,6 @@ std::vector<std::vector<int>> get_tracks(const Graph &G, double cc_cut, double t
         hit_id_to_vertex[name] = v;
         all_hit_ids.push_back(name);
     }
-    test_graph(newG, hit_id_to_vertex, all_hit_ids, 165);
 
     UndirectedGraph ugraph;
     // add vertices from newG to ugraph.
@@ -455,6 +454,9 @@ int main(int argc, char **argv)
         std::cerr << "Error: Unable to parse graph from DOT file." << std::endl;
         return 1;
     }
+
+    std::cout <<"Testing Graph: " << boost::num_vertices(G) << " vertices, " << boost::num_edges(G) << " edges." << std::endl;
+    
 
     bool debug = false;
     if (debug){
