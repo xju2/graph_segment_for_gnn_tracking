@@ -8,5 +8,5 @@ RUN apt-get update -y && DEBIAN_FRONTEND="noninteractive" TZ="America/Los_Angele
     libtbb2 libtbb-dev cmake \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip3 install --upgrade pip && pip install pybind11 numpy \
-    && pip install cugraph-cu12 nx-cugraph-cu12 cugraph-pyg-cu12 --extra-index-url=https://pypi.nvidia.com
+RUN pip install --upgrade pip && pip install pybind11
+RUN pip install cugraph-cu12 nx-cugraph-cu12 cugraph-pyg-cu12 --extra-index-url=https://pypi.nvidia.com
