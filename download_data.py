@@ -9,7 +9,7 @@ def download_data(url):
     data_dir = this_file_path.parent / "data"
     data_dir.mkdir(exist_ok=True)
 
-    file_list = ["debug_graph.dot"]
+    file_list = ["debug_graph.dot", "debug_graph.pt"]
     for file in file_list:
         response = requests.get(url + file, stream=True)
         total_size_in_bytes = int(response.headers.get('content-length', 0))
