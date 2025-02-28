@@ -1,2 +1,6 @@
-# graph_segment_for_gnn_tracking
-Explore the Graph Segment Algorithms for GNN-based Tracking.
+# Graph Segment Algorithms for Graph Neural Network-based Tracking
+
+### Installation
+```bash
+
+```
