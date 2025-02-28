@@ -14,6 +14,23 @@
 #include <string>
 #include <chrono>
 
+class SectionTimer {
+    public:
+        SectionTimer(const std::string& name) : section_name(name) {
+            start_time = std::chrono::high_resolution_clock::now();
+        }
+        
+        ~SectionTimer() {
+            auto end_time = std::chrono::high_resolution_clock::now();
+            std::chrono::duration<double, std::milli> elapsed = end_time - start_time;
+            std::cout << "[" << section_name << "] took " << elapsed.count() << " ms" << std::endl;
+        }
+        
+    private:
+        std::string section_name;
+        std::chrono::high_resolution_clock::time_point start_time;
+    };
+
 // -- Original Boost-based definitions --
 typedef boost::property<boost::vertex_name_t, int64_t> vertex_p;
 typedef boost::property<boost::edge_weight_t, double> edge_p;
@@ -189,39 +206,100 @@ std::vector<std::vector<int>> build_roads(
 //------------------------------------------------------------------------------
 // 5) Cleanup graph: remove isolated vertices & edges below a threshold
 //------------------------------------------------------------------------------
+// Graph cleanup_graph(const Graph& G, double cc_cut)
+// {
+//     Graph newG;
+//     // Map old vertex -> new vertex
+//     std::vector<int> old_to_new(num_vertices(G), -1);
+
+//     int old_id = 0;
+//     int new_id = 0;
+//     for (auto v : boost::make_iterator_range(vertices(G))) {
+//         // skip isolated
+//         if (in_degree(v, G) == 0 && out_degree(v, G) == 0) {
+//             old_id++;
+//             continue;
+//         }
+//         // create new vertex
+//         auto name = boost::get(boost::vertex_name, G, v);
+//         add_vertex(name, newG);
+//         old_to_new[old_id++] = new_id++;
+//     }
+
+//     // add edges with weight > cc_cut
+//     auto edges_range = boost::edges(G);
+//     for (auto it = edges_range.first; it != edges_range.second; ++it) {
+//         int s = static_cast<int>(boost::source(*it, G));
+//         int t = static_cast<int>(boost::target(*it, G));
+//         double w = boost::get(boost::edge_weight, G, *it);
+//         if (w <= cc_cut) continue;
+
+//         int ns = old_to_new[s];
+//         int nt = old_to_new[t];
+//         if (ns < 0 || nt < 0) continue; // was isolated
+//         add_edge(ns, nt, w, newG);
+//     }
+//     return newG;
+// }
 Graph cleanup_graph(const Graph& G, double cc_cut)
 {
-    Graph newG;
-    // Map old vertex -> new vertex
-    std::vector<int> old_to_new(num_vertices(G), -1);
-
-    int old_id = 0;
-    int new_id = 0;
-    for (auto v : boost::make_iterator_range(vertices(G))) {
-        // skip isolated
-        if (in_degree(v, G) == 0 && out_degree(v, G) == 0) {
-            old_id++;
-            continue;
-        }
-        // create new vertex
-        auto name = boost::get(boost::vertex_name, G, v);
-        add_vertex(name, newG);
-        old_to_new[old_id++] = new_id++;
-    }
-
-    // add edges with weight > cc_cut
+    // Get vertex and edge count for pre-allocation
+    size_t vertex_count = boost::num_vertices(G);
+    
+    // Pre-scan for valid edges to avoid repeated property access
+    std::vector<std::tuple<int, int, double>> valid_edges;
+    valid_edges.reserve(boost::num_edges(G)); // Avoid reallocations
+    
+    // Track which vertices are non-isolated
+    std::vector<bool> is_non_isolated(vertex_count, false);
+    size_t non_isolated_count = 0;
+    
+    // Single pass over all edges to collect valid edges and mark non-isolated vertices
     auto edges_range = boost::edges(G);
     for (auto it = edges_range.first; it != edges_range.second; ++it) {
-        int s = static_cast<int>(boost::source(*it, G));
-        int t = static_cast<int>(boost::target(*it, G));
-        double w = boost::get(boost::edge_weight, G, *it);
-        if (w <= cc_cut) continue;
-
-        int ns = old_to_new[s];
-        int nt = old_to_new[t];
-        if (ns < 0 || nt < 0) continue; // was isolated
-        add_edge(ns, nt, w, newG);
+        double weight = boost::get(boost::edge_weight, G, *it);
+        
+        if (weight > cc_cut) {
+            int source = static_cast<int>(boost::source(*it, G));
+            int target = static_cast<int>(boost::target(*it, G));
+            
+            valid_edges.emplace_back(source, target, weight);
+            
+            // Mark vertices as non-isolated
+            if (!is_non_isolated[source]) {
+                is_non_isolated[source] = true;
+                non_isolated_count++;
+            }
+            if (!is_non_isolated[target]) {
+                is_non_isolated[target] = true;
+                non_isolated_count++;
+            }
+        }
     }
+    
+    // Create mapping from old vertex index to new vertex index
+    std::vector<int> old_to_new(vertex_count, -1);
+    int new_index = 0;
+    
+    // Pre-create the optimized graph with exact number of vertices needed
+    Graph newG(non_isolated_count);
+    
+    // Add vertices to the new graph in one pass
+    for (size_t old_idx = 0; old_idx < vertex_count; ++old_idx) {
+        if (is_non_isolated[old_idx]) {
+            auto name = boost::get(boost::vertex_name, G, old_idx);
+            boost::put(boost::vertex_name, newG, new_index, name);
+            old_to_new[old_idx] = new_index++;
+        }
+    }
+    
+    // Add all valid edges in one pass
+    for (const auto& [src, dst, weight] : valid_edges) {
+        int new_src = old_to_new[src];
+        int new_dst = old_to_new[dst];
+        boost::add_edge(new_src, new_dst, weight, newG);
+    }
+    
     return newG;
 }
 
@@ -230,13 +308,21 @@ Graph cleanup_graph(const Graph& G, double cc_cut)
 //------------------------------------------------------------------------------
 std::vector<std::vector<int>> get_tracks(const Graph &G, double cc_cut, double th_min, double th_add)
 {
+    SectionTimer timer("get_tracks");
+
     // 1) Prune the original graph
-    Graph newG = cleanup_graph(G, cc_cut);
-    size_t nV = boost::num_vertices(newG);
+    Graph newG;
+    size_t nV;
+    {
+        SectionTimer timer("clean_graph");
+        newG = cleanup_graph(G, cc_cut);
+        nV = boost::num_vertices(newG);
+    }
 
     // 2) Build a local adjacency list: adjacency_list[v] => list of (neighbor, weight)
     std::vector<std::vector<NeighborInfo>> adjacency_list(nV);
     {
+        SectionTimer timer("build_adjacency");
         auto edges_range = boost::edges(newG);
         adjacency_list.reserve(nV); // optional
         for (auto it = edges_range.first; it != edges_range.second; ++it) {
@@ -251,54 +337,70 @@ std::vector<std::vector<int>> get_tracks(const Graph &G, double cc_cut, double t
 
     // 3) Store "hit ID" for each vertex, so we don't call get(vertex_name, ...)
     std::vector<int> vertex_hit_id(nV);
-    for (size_t v = 0; v < nV; ++v) {
-        vertex_hit_id[v] = boost::get(boost::vertex_name, newG, static_cast<Vertex>(v));
+    {
+        SectionTimer timer("sort_hit_id");
+        for (size_t v = 0; v < nV; ++v) {
+            vertex_hit_id[v] = boost::get(boost::vertex_name, newG, static_cast<Vertex>(v));
+        }
     }
 
     // 4) Build an undirected copy for the "simple path" step
     UndirectedGraph ugraph;
-    ugraph.m_vertices.reserve(nV); // vector-based optimization
-
-    for (size_t v = 0; v < nV; ++v) {
-        add_vertex(vertex_hit_id[v], ugraph);
-    }
     {
-        auto edges_range = boost::edges(newG);
-        for (auto it = edges_range.first; it != edges_range.second; ++it) {
-            auto s = boost::source(*it, newG);
-            auto t = boost::target(*it, newG);
-            add_edge(s, t, ugraph);
+        SectionTimer timer("build_undirected_copy");
+        ugraph.m_vertices.reserve(nV); // vector-based optimization
+
+        for (size_t v = 0; v < nV; ++v) {
+            add_vertex(vertex_hit_id[v], ugraph);
+        }
+        {
+            auto edges_range = boost::edges(newG);
+            for (auto it = edges_range.first; it != edges_range.second; ++it) {
+                auto s = boost::source(*it, newG);
+                auto t = boost::target(*it, newG);
+                add_edge(s, t, ugraph);
+            }
         }
     }
 
     // 5) Find "simple paths" in the undirected graph
-    std::vector<std::vector<int>> sub_graphs = get_simple_path(ugraph);
+    std::vector<std::vector<int>> sub_graphs;
+    {
+        SectionTimer timer("get_simple_path");
+        sub_graphs = get_simple_path(ugraph);
+    }
 
     // 6) Mark used vertices in newG that appear in those simple paths
     //    We'll track usage by "vertex index," so we need to invert: hit_id -> vertex
     //    but we only have vertex -> hit_id. Let's build a simple map for that:
     //    (Alternatively, you could do this right inside get_simple_path if you stored
     //     the newly assigned vertex index instead of the original name.)
-    std::unordered_map<int, int> hit_id_to_vertex; // for quick usage check
-    hit_id_to_vertex.reserve(nV);
-    for (size_t v = 0; v < nV; ++v) {
-        hit_id_to_vertex[ vertex_hit_id[v] ] = static_cast<int>(v);
-    }
-
     std::vector<bool> used_vertex(nV, false);
-    for (const auto& track : sub_graphs) {
-        for (int hid : track) {
-            if (hit_id_to_vertex.count(hid)) {
-                used_vertex[ hit_id_to_vertex[hid] ] = true;
+    int num_simple_paths;
+    {
+        SectionTimer timer("mark_used_vertex");
+        std::unordered_map<int, int> hit_id_to_vertex; // for quick usage check
+        hit_id_to_vertex.reserve(nV);
+        for (size_t v = 0; v < nV; ++v) {
+            hit_id_to_vertex[ vertex_hit_id[v] ] = static_cast<int>(v);
+        }
+        for (const auto& track : sub_graphs) {
+            for (int hid : track) {
+                if (hit_id_to_vertex.count(hid)) {
+                    used_vertex[ hit_id_to_vertex[hid] ] = true;
+                }
             }
         }
+        num_simple_paths = (int)sub_graphs.size();
     }
-    int num_simple_paths = (int)sub_graphs.size();
 
     // 7) Topological sort the pruned graph
     std::vector<Vertex> topo_order;
-    topo_order.reserve(nV);
-    boost::topological_sort(newG, std::back_inserter(topo_order));
+    {
+        SectionTimer timer("topo_sort");
+        topo_order.reserve(nV);
+        boost::topological_sort(newG, std::back_inserter(topo_order));
+    }
 
     // We'll create a small lambda that, given a vertex index, returns next hits
     auto next_node_fn = [&](int current_vertex) {
@@ -306,29 +408,32 @@ std::vector<std::vector<int>> get_tracks(const Graph &G, double cc_cut, double t
     };
 
     // 8) Walk in reverse topo order and expand roads
-    for (auto it = topo_order.rbegin(); it != topo_order.rend(); ++it) {
-        int v = static_cast<int>(*it);
-        if (used_vertex[v]) continue; // skip if already used
+    {
+        SectionTimer timer("walk_reverse_topo");
+        for (auto it = topo_order.rbegin(); it != topo_order.rend(); ++it) {
+            int v = static_cast<int>(*it);
+            if (used_vertex[v]) continue; // skip if already used
 
-        // Build roads from this vertex
-        auto roads = build_roads(v, next_node_fn, used_vertex);
-        used_vertex[v] = true; // mark it used
+            // Build roads from this vertex
+            auto roads = build_roads(v, next_node_fn, used_vertex);
+            used_vertex[v] = true; // mark it used
 
-        if (roads.empty()) continue;
+            if (roads.empty()) continue;
 
-        // Find the "longest" road among them
-        auto longest_it = std::max_element(roads.begin(), roads.end(),
-            [](auto &a, auto &b){ return a.size() < b.size(); });
+            // Find the "longest" road among them
+            auto longest_it = std::max_element(roads.begin(), roads.end(),
+                [](auto &a, auto &b){ return a.size() < b.size(); });
 
-        if (longest_it->size() >= 3) {
-            // Copy to a track of "hit IDs"
-            std::vector<int> track;
-            track.reserve(longest_it->size());
-            for (int vtx : *longest_it) {
-                used_vertex[vtx] = true;
-                track.push_back(vertex_hit_id[vtx]);
+            if (longest_it->size() >= 3) {
+                // Copy to a track of "hit IDs"
+                std::vector<int> track;
+                track.reserve(longest_it->size());
+                for (int vtx : *longest_it) {
+                    used_vertex[vtx] = true;
+                    track.push_back(vertex_hit_id[vtx]);
+                }
+                sub_graphs.push_back(std::move(track));
             }
-            sub_graphs.push_back(std::move(track));
         }
     }
 
