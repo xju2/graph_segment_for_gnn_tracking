@@ -20,3 +20,6 @@ cmake --build build
 
 ### Usage
 Download the data `python3 download_data.py`. And then `./build/bin/walk_through data/debug_graph.dot`.
+
+#### Note
+The code was improved by `OpenAI o1Pro` model. The execution time was reduced from 403 ms to 190 ms.
