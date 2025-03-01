@@ -11,8 +11,15 @@ set_target_properties(
 )
 target_include_directories(gs_core PUBLIC include)
 target_link_libraries(gs_core PUBLIC Boost::graph)
+target_sources(gs_core
+  PUBLIC
+    "include/graph_segment/cc_and_walk.h"
+)
 
 install(TARGETS gs_core
   LIBRARY DESTINATION lib
-  PUBLIC_HEADER DESTINATION include
+)
+install(DIRECTORY include/ # Replace "include" with your header directory
+  DESTINATION include
+  FILES_MATCHING PATTERN "*.h*" # Install all header files
 )
