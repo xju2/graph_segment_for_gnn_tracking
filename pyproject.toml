@@ -1,5 +1,5 @@
 [build-system]
-requires = ["scikit-build-core>=0.5.0", "pybind11"]
+requires = ["scikit-build-core>=0.5.0", "pybind11", "cmake"]
 build-backend = "scikit_build_core.build"
 
 
@@ -9,7 +9,6 @@ version = "0.0.1"
 
 
 [tool.scikit-build]
-cmake.define = { pybind11_DIR = "/usr/local/lib/python3.10/dist-packages/pybind11/share/cmake/pybind11" }
 cmake.verbose = true
 logging.level = "INFO"
 
