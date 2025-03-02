@@ -27,5 +27,10 @@ cmake -B build -S . -Dpybind11_DIR=/usr/local/lib/python3.10/dist-packages/pybin
 cmake --build build
 ```
 
+### Packing and Uploading
+```bash
+python3 -m build --sdist
+python3 -m build --wheel
+```
 #### Note
 The code was improved by `OpenAI o1Pro` model. The execution time was reduced from 403 ms to 190 ms.
