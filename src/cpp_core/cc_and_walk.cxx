@@ -14,30 +14,9 @@
 #include <string>
 #include <chrono>
 
-// -- Original Boost-based definitions --
-typedef boost::property<boost::vertex_name_t, int64_t> vertex_p;
-typedef boost::property<boost::edge_weight_t, double> edge_p;
+#include "graph_segment/cc_and_walk.h"
 
-typedef boost::adjacency_list<
-    boost::vecS, boost::vecS,
-    boost::bidirectionalS,
-    vertex_p,
-    edge_p,
-    boost::no_property
-> Graph;
-
-typedef boost::adjacency_list<
-    boost::vecS, boost::vecS,
-    boost::undirectedS,
-    vertex_p,
-    boost::no_property,
-    boost::no_property
-> UndirectedGraph;
-
-typedef boost::graph_traits<Graph>::vertex_descriptor Vertex;
-typedef boost::graph_traits<Graph>::edge_descriptor Edge;
-using vertex_t = int32_t;
-
+namespace GraphSegment {    
 //------------------------------------------------------------------------------
 // 1) Functions handling undirected connected components to find "simple paths"
 //------------------------------------------------------------------------------
@@ -82,14 +61,6 @@ std::vector<std::vector<int>> get_simple_path(const UndirectedGraph& G)
 }
 
 //------------------------------------------------------------------------------
-// 2) Replace repeated out_edges(...) calls with a local adjacency list
-//------------------------------------------------------------------------------
-struct NeighborInfo {
-    int neighbor;    // neighbor vertex index in newG
-    double weight;   // edge weight
-};
-
-//------------------------------------------------------------------------------
 // 3) Updated find_next_node using the adjacency list
 //------------------------------------------------------------------------------
 std::vector<int> find_next_node(
@@ -115,9 +86,9 @@ std::vector<int> find_next_node(
 
     // Find the single "best neighbor" by max score
     auto best_neighbor_it = std::max_element(neighbors_scores.begin(), neighbors_scores.end(),
-                                             [](auto &a, auto &b){
-                                                 return a.second < b.second;
-                                             });
+                                                [](auto &a, auto &b){
+                                                    return a.second < b.second;
+                                                });
 
     // Collect neighbors above th_add
     std::vector<int> next_hits;
@@ -135,8 +106,8 @@ std::vector<int> find_next_node(
     // Finally remove any that are already used
     // (You could also do this before picking best neighbor, depending on logic.)
     next_hits.erase(std::remove_if(next_hits.begin(), next_hits.end(),
-                   [&](int v){ return used_vertex[v]; }),
-                   next_hits.end());
+                    [&](int v){ return used_vertex[v]; }),
+                    next_hits.end());
     return next_hits;
 }
 
@@ -334,7 +305,7 @@ std::vector<std::vector<int>> get_tracks(const Graph &G, double cc_cut, double t
 
     // Optional: print or return how many new tracks we found
     std::cout << "From CC&&Walk: Number of tracks found by Walkthrough: "
-              << sub_graphs.size() - num_simple_paths << std::endl;
+                << sub_graphs.size() - num_simple_paths << std::endl;
 
     return sub_graphs;
 }
@@ -357,59 +328,5 @@ void write_tracks(const std::vector<std::vector<int>>& tracks, const std::string
         file << "-1 ";
     }
     file << std::endl;
-}
-
-//------------------------------------------------------------------------------
-// 8) main
-//------------------------------------------------------------------------------
-int main(int argc, char **argv)
-{
-    if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " <dot_file>" << std::endl;
-        return 1;
-    }
-    std::string dot_file_name(argv[1]);
-
-    // Load the graph from DOT
-    std::ifstream dot_file(dot_file_name);
-    if (!dot_file) {
-        std::cerr << "Error: Unable to open file " << dot_file_name << std::endl;
-        return 1;
-    }
-
-    double cc_cut = 0.01, th_min = 0.1, th_add = 0.6;
-
-    Graph G;
-    boost::dynamic_properties dp;
-    dp.property("hit_id", boost::get(boost::vertex_name, G));
-    dp.property("edge_scores", boost::get(boost::edge_weight, G));
-
-    if (!boost::read_graphviz(dot_file, G, dp, "hit_id")) {
-        std::cerr << "Error: Unable to parse graph from DOT file." << std::endl;
-        return 1;
-    }
-
-    // Print input stats
-    std::cout << "Input Graph: "
-              << boost::num_vertices(G) << " vertices, "
-              << boost::num_edges(G) << " edges.\n";
-
-    // Time the track building
-    auto start = std::chrono::high_resolution_clock::now();
-    auto final_tracks = get_tracks(G, cc_cut, th_min, th_add);
-    auto end = std::chrono::high_resolution_clock::now();
-    double elapsed_ms = std::chrono::duration<double, std::milli>(end - start).count();
-
-    // Summaries
-    std::cout << "From CC&&Walk:: Total " << final_tracks.size() <<  " tracks\n";
-    std::cout << "Time taken: " << elapsed_ms << " ms\n";
-    // Example final prints (numbers here are just placeholders):
-    std::cout << "From ACORN: Number of tracks found by CC: 2949\n"
-              << "From ACORN: Number of tracks found by Walkthrough: 1299\n"
-              << "From ACORN: Total 4248 tracks.\n";
-
-    // Write out final tracks
-    write_tracks(final_tracks, "tracks.txt");
-
-    return 0;
-}
+}    
+} // namespace GraphSegment

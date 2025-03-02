@@ -14,16 +14,7 @@ add_compile_options(-fPIC)
 add_compile_options(-pedantic)
 # add_compile_options(-Wgnu-zero-variadic-macro-arguments)
 
-find_package(Boost REQUIRED COMPONENTS graph)
-message(STATUS "Boost Libaries: ${Boost_LIBRARIES} ${Boost_INCLUDE_DIRS}")
-
-add_executable(walk_through walk_through.cxx)
-set_target_properties(
-  walk_through PROPERTIES
-  LINKER_LANGUAGE CXX
-  CXX_STANDARD 20
-)
-target_link_libraries(walk_through PUBLIC Boost::graph)
-
-add_subdirectory(pybinding)
+add_subdirectory(cpp_core)
+add_subdirectory(cpp_test)
+add_subdirectory(cpp_pybind11)
 

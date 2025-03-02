@@ -1,16 +1,39 @@
 [build-system]
-requires = ["scikit-build-core>=0.5.0", "pybind11"]
+requires = ["scikit-build-core>=0.11.0", "pybind11", "cmake"]
 build-backend = "scikit_build_core.build"
 
 
 [project]
 name = "graph_segment"
 version = "0.0.1"
+description = "Graph-based image segmentation"
+readme = "README.md"
+authors = [
+  {name = "Xiangyang Ju", email = "xju@lbl.gov"},
+]
+license = "MIT"
+keywords = ["graph", "segmentation", "tracking"]
+classifiers = [
+  # How mature is this project? Common values are
+  #   3 - Alpha
+  #   4 - Beta
+  #   5 - Production/Stable
+  "Development Status :: 3 - Alpha",
+
+  # Indicate who your project is intended for
+  "Intended Audience :: Scientists",
+
+  # Specify the Python versions you support here.
+  "Programming Language :: Python :: 3",
+  "Programming Language :: C++ :: 17",
+]
+
+[project.urls]
+Homepage = "https://github.com/xju2/graph_segment_for_gnn_tracking"
 
 
 [tool.scikit-build]
-cmake.define = { pybind11_DIR = "/usr/local/lib/python3.10/dist-packages/pybind11/share/cmake/pybind11" }
-cmake.verbose = true
+build.verbose = true
 logging.level = "INFO"
 
 [tool.ruff.lint]
