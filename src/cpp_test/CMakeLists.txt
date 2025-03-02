@@ -8,5 +8,5 @@ target_link_libraries(eval_walk_through PUBLIC gs_core)
 
 
 install(TARGETS eval_walk_through
-  RUNTIME DESTINATION bin
+  RUNTIME DESTINATION ${SKBUILD_SCRIPTS_DIR}
 )

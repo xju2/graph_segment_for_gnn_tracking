@@ -8,18 +8,13 @@ set_target_properties(
   gs_core PROPERTIES
   LINKER_LANGUAGE CXX
   CXX_STANDARD 20
+  PUBLIC_HEADER include/graph_segment/cc_and_walk.h
 )
 target_include_directories(gs_core PUBLIC include)
 target_link_libraries(gs_core PUBLIC Boost::graph)
-target_sources(gs_core
-  PUBLIC
-    "include/graph_segment/cc_and_walk.h"
-)
+
 
 install(TARGETS gs_core
-  LIBRARY DESTINATION lib
-)
-install(DIRECTORY include/ # Replace "include" with your header directory
-  DESTINATION include
-  FILES_MATCHING PATTERN "*.h*" # Install all header files
+  LIBRARY DESTINATION ${SKBUILD_PROJECT_NAME}/lib64
+  PUBLIC_HEADER DESTINATION ${SKBUILD_HEADERS_DIR}/graph_segment
 )
