@@ -31,6 +31,7 @@ cmake --build build
 ```bash
 python3 -m build --sdist
 python3 -m build --wheel
+twine upload dist/*
 ```
 #### Note
 The code was improved by `OpenAI o1Pro` model. The execution time was reduced from 403 ms to 190 ms.
