@@ -15,6 +15,8 @@ add_compile_options(-pedantic)
 # add_compile_options(-Wgnu-zero-variadic-macro-arguments)
 
 add_subdirectory(cpp_core)
-add_subdirectory(cpp_test)
 add_subdirectory(cpp_pybind11)
 
+if(CMAKE_BUILD_TYPE MATCHES Debug)
+  add_subdirectory(cpp_test)
+endif()

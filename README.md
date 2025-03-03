@@ -23,7 +23,7 @@ and build the code:
 podman-hpc run -it --rm --gpu -v $PWD:$PWD -w $PWD docexoty/mltools:20250227 bash
 ```
 ```bash
-cmake -B build -S . -Dpybind11_DIR=/usr/local/lib/python3.10/dist-packages/pybind11/share/cmake/pybind11
+cmake -B build -S . -Dpybind11_DIR=/usr/local/lib/python3.10/dist-packages/pybind11/share/cmake/pybind11 -DCMAKE_BUILD_TYPE=DEBUG
 cmake --build build
 ```
 
