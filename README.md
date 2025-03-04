@@ -2,7 +2,7 @@
 
 ### Installation
 ```bash
-pip install .
+pip install graph_segment
 ```
 
 ### Test
