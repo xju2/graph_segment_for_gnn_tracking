@@ -1,6 +1,3 @@
-set(PYBIND11_NEWPYTHON ON)
-find_package(pybind11 CONFIG REQUIRED)
-
 pybind11_add_module(_core walk_through_binding.cxx)
 target_link_libraries(_core PUBLIC gs_core)
 # set_target_properties(

@@ -10,27 +10,22 @@ Download the data `python3 download_data.py`. And then `./build/bin/walk_through
 
 
 ### Developer Guide
-The following commands are for Perlmutter. 
-For other systems, please adjust the commands accordingly.
+Install a Python virtual environment and activate it:
 ```bash
-podman-hpc pull docker.io/docexoty/mltools:20250227
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install cibuildwheel build twine
 ```
-Or you can build the image from the [Dockerfile](Dockerfile) in this repository.
 
-Then run the following command to start the container,
-and build the code:
+Then you can run
 ```bash
-podman-hpc run -it --rm --gpu -v $PWD:$PWD -w $PWD docexoty/mltools:20250227 bash
-```
-```bash
-cmake -B build -S . -Dpybind11_DIR=/usr/local/lib/python3.10/dist-packages/pybind11/share/cmake/pybind11 -DCMAKE_BUILD_TYPE=DEBUG
-cmake --build build
+pipx run cibuildwheel --platform linux
 ```
 
 ### Packing and Uploading
 ```bash
-python3 -m build --sdist
-python3 -m build --wheel
+python3 -m build
 twine upload dist/*
 ```
 #### Note

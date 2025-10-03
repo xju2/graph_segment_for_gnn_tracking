@@ -1,11 +1,11 @@
 [build-system]
-requires = ["scikit-build-core>=0.11.0", "pybind11", "cmake"]
+requires = ["scikit-build-core>=0.11.0", "pybind11"]
 build-backend = "scikit_build_core.build"
 
 
 [project]
 name = "graph_segment"
-version = "0.0.1"
+version = "0.0.2"
 description = "Graph-based image segmentation"
 readme = "README.md"
 authors = [
@@ -39,10 +39,17 @@ dev = [
 [tool.cibuildwheel]
 before-all = "uname -a"
 
+# Pass the option to force vendoring Boost during wheel builds
+environment = { CMAKE_ARGS = "-DGRAPH_SEGMENT_VENDOR_BOOST=ON" }
+
+# (optional) if you want manylinux builds to allow fetching Boost
+manylinux-x86_64-image = "manylinux_2_28"
+
 
 [tool.scikit-build]
 build.verbose = true
 logging.level = "INFO"
+cmake.version = ">=3.16,<4.0"
 
 [tool.ruff.lint]
 extend-select = [

@@ -1,6 +1,3 @@
-find_package(Boost REQUIRED COMPONENTS graph)
-message(STATUS "Boost Libaries: ${Boost_LIBRARIES} ${Boost_INCLUDE_DIRS}")
-
 add_library(gs_core SHARED
   cc_and_walk.cxx
 )
