@@ -11,7 +11,7 @@
         runs-on: ${{ matrix.os }}
         strategy:
             matrix:
-                os: [ubuntu-latest, ubuntu-24.04-arm, windows-latest, windows-11-arm, macos-15-intel, macos-14]
+                os: [ubuntu-latest]
 
         steps:
         - uses: actions/checkout@v5
@@ -21,10 +21,14 @@
           with:
             python-version: "3.11"
 
+        - name: Install Boost headers
+          if: runner.os == 'Linux'
+          run: sudo apt-get update && sudo apt-get install -y libboost-graph-dev
+
         - name: Build wheels
           uses: pypa/cibuildwheel@v3.2.0
           env:
-            CMAKE_ARGS: "-DGRAPH_SEGMENT_VENDOR_BOOST=ON"
+            CMAKE_ARGS: "-DGRAPH_SEGMENT_VENDOR_BOOST=OFF"
 
         - name: Build sdist
           run: python -m build --sdist
