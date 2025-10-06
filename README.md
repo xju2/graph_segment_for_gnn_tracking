@@ -25,8 +25,8 @@ pipx run cibuildwheel --platform linux
 
 ### Packing and Uploading
 ```bash
-python3 -m build
-twine upload dist/*
+python3 -m build --sdist
+twine upload dist/* wheelhouse/*
 ```
 #### Note
 The code was improved by `OpenAI o1Pro` model. The execution time was reduced from 403 ms to 190 ms.
