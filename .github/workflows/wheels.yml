@@ -23,6 +23,8 @@
 
         - name: Build wheels
           uses: pypa/cibuildwheel@v3.2.0
+          with:
+            output-dir: dist
 
         - name: Build sdist
           run: pip install build twine  && python -m build --sdist
@@ -30,9 +32,7 @@
         - uses: actions/upload-artifact@v4
           with:
             name: cibw-wheels-${{ matrix.os }}-${{ strategy.job-index }}
-            path: |
-              ./wheelhouse/*.whl
-              ./dist/*.tar.gz
+            path: dist/*
 
     publish_pypi:
         name: Publish to PyPI
