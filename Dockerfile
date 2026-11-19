@@ -4,7 +4,7 @@ FROM nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04
 
 RUN apt-get update -y && DEBIAN_FRONTEND="noninteractive" TZ="America/Los_Angeles" apt-get -y install \
 	dpkg-dev g++ gcc python3-dev python3-pip \
-    libboost-all-dev vim wget rsync \
+    vim wget rsync \
     libtbb2 libtbb-dev cmake \
     && rm -rf /var/lib/apt/lists/*
 

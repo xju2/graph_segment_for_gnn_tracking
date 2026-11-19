@@ -79,7 +79,7 @@ What to take from it:
 Per-event data: https://portal.nersc.gov/cfs/m3443/xju/muon_collider/segmentation_benchmark/graph_segment/
 
 ### Test
-Download the data `python3 download_data.py`. And then `./build/bin/walk_through data/debug_graph.dot`.
+`pytest tests/`
 
 
 ### Developer Guide
