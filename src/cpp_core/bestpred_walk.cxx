@@ -226,7 +226,9 @@ Tracks cc_and_junction_removal(int num_nodes, const std::vector<int64_t>& src,
     std::vector<char> bad(num_nodes, 0);
     for (int v = 0; v < num_nodes; ++v) ++size[comp[v] = find_root(parent, v)];
     for (int v = 0; v < num_nodes; ++v)
-        if (indeg[v] > 1 || outdeg[v] > 1 || size[comp[v]] < min_chain_length) bad[comp[v]] = 1;
+        // a lone hit is never a chain, whatever min_chain_length: leave it to the junction stage
+        if (indeg[v] > 1 || outdeg[v] > 1 || size[comp[v]] < std::max(min_chain_length, 2))
+            bad[comp[v]] = 1;
 
     auto group = [&](const std::vector<int>& label, size_t min_size) {
         std::unordered_map<int, size_t> index;

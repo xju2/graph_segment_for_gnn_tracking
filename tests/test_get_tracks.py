@@ -32,6 +32,11 @@ def test_junction_removal():
     out = get_tracks(7, e, s, "cc_junction_removal", cc_cut=0.7, junction_cut=0.5,
                      min_chain_length=3)
     assert out == {"cc": [[0, 1, 2]], "junction": [[3, 4, 5]]}
+    # a lone hit is not a chain even at min_chain_length=1, so 0 -> 1 below cc_cut is a junction track
+    e, s = edges((0, 1, 0.6))
+    out = get_tracks(2, e, s, "cc_junction_removal", cc_cut=0.7, junction_cut=0.5,
+                     min_chain_length=1)
+    assert out == {"cc": [], "junction": [[0, 1]]}
 
 
 def test_post_filters_for_every_backend():
