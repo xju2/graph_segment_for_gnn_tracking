@@ -42,7 +42,7 @@
         steps:
             - uses: actions/download-artifact@v4
               with:
-                name: cibw-wheels-*
+                pattern: cibw-wheels-*
                 path: dist
                 merge-multiple: true
 
