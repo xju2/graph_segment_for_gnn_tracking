@@ -32,7 +32,7 @@ print(list(graph_segment.BACKENDS))
 - **Filters:** every backend takes `min_track_score` (drop tracks whose mean internal edge score is lower) and `min_track_hits`.
 - **Track length:** no backend returns a track with fewer than two hits.
 - **Implementation:** the backends are C++ on plain edge arrays (`src/cpp_core/bestpred_walk.cxx`), with no Boost and no networkx.
-- **Adding a backend:** write `fn(num_nodes, edge_index, scores, **cuts) -> {method: tracks}` and add it to `BACKENDS` in `src/graph_segment/__init__.py`.
+- **Adding a backend:** write `fn(num_nodes, edge_index, scores, cut_a=..., ...) -> {method: tracks}` and add it to `BACKENDS` in `src/graph_segment/__init__.py`. Name each cut as a keyword parameter, not `**kwargs`: `get_tracks` passes a backend only the cuts it names.
 
 `cc_and_bestpred_walk(...)` is still available and returns `(cc_tracks, walk_tracks)`.
 

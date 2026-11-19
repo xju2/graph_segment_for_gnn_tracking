@@ -5,7 +5,9 @@
 Every backend takes the same inputs -- edge_index (2, E) pointing outward (from the hit
 nearer the interaction point, so the graph is acyclic) and scores (E,) -- and returns
 {method: [[node, ...], ...]}, so switching backend is changing one string.
-To add a backend: write `fn(num_nodes, edge_index, scores, **cuts) -> dict` and put it in BACKENDS.
+To add a backend: write `fn(num_nodes, edge_index, scores, cut_a=..., ...) -> dict`, naming each
+cut as a keyword parameter (not **kwargs; get_tracks passes only the cuts a backend names),
+and put it in BACKENDS.
 """
 
 from __future__ import annotations
