@@ -15,6 +15,15 @@ struct Edge {
     float score;
 };
 
+void check_edges(int num_nodes, const std::vector<int64_t>& src, const std::vector<int64_t>& dst,
+                 const std::vector<float>& scores) {
+    if (src.size() != dst.size() || src.size() != scores.size())
+        throw std::invalid_argument("src, dst and scores must have the same length");
+    for (size_t i = 0; i < src.size(); ++i)
+        if (src[i] < 0 || dst[i] < 0 || src[i] >= num_nodes || dst[i] >= num_nodes)
+            throw std::invalid_argument("edge index out of range");
+}
+
 int find_root(std::vector<int>& parent, int x) {
     while (parent[x] != x) {
         parent[x] = parent[parent[x]];
@@ -55,15 +64,11 @@ std::vector<std::vector<int>> post_filter(std::vector<std::vector<int>> tracks,
 
 }  // namespace
 
-Tracks cc_and_bestpred_walk(int num_nodes, const std::vector<int64_t>& src,
-                            const std::vector<int64_t>& dst, const std::vector<float>& scores,
-                            float cc_cut, float th_min, float th_add, float min_track_score,
-                            int min_track_hits) {
-    if (src.size() != dst.size() || src.size() != scores.size())
-        throw std::invalid_argument("src, dst and scores must have the same length");
-    for (size_t i = 0; i < src.size(); ++i)
-        if (src[i] < 0 || dst[i] < 0 || src[i] >= num_nodes || dst[i] >= num_nodes)
-            throw std::invalid_argument("edge index out of range");
+Tracks cc_and_walk(int num_nodes, const std::vector<int64_t>& src,
+                   const std::vector<int64_t>& dst, const std::vector<float>& scores,
+                   float cc_cut, float th_min, float th_add, bool walk, bool best_predecessor,
+                   float min_track_score, int min_track_hits) {
+    check_edges(num_nodes, src, dst, scores);
 
     // A repeated (u, v) keeps its first position and its last score (as networkx's
     // to_networkx does in acorn); then the edges at or below cc_cut go.
@@ -159,7 +164,7 @@ Tracks cc_and_bestpred_walk(int num_nodes, const std::vector<int64_t>& src,
         for (size_t i = 0; i < nb.size(); ++i) {
             if (i > 0 && nb[i].second <= th_add) break;
             const auto [v, s] = nb[i];
-            const bool beaten = std::any_of(pred[v].begin(), pred[v].end(), [&](const auto& q) {
+            const bool beaten = best_predecessor && std::any_of(pred[v].begin(), pred[v].end(), [&](const auto& q) {
                 return q.first != cur && free_hit(q.first) && q.second > s;
             });
             if (!beaten) hits.push_back(v);
@@ -169,7 +174,7 @@ Tracks cc_and_bestpred_walk(int num_nodes, const std::vector<int64_t>& src,
 
     // Depth-first over the branches in score order; among the longest complete paths
     // the last one wins, as acorn's choose_longest_road picks it.
-    auto walk = [&](auto& self) -> void {
+    auto walk_from = [&](auto& self) -> void {
         const auto hits = next_hits(path.back());
         if (hits.empty()) {
             if (path.size() >= best.size()) best = path;
@@ -182,7 +187,7 @@ Tracks cc_and_bestpred_walk(int num_nodes, const std::vector<int64_t>& src,
         }
     };
 
-    for (int node : order) {
+    for (int node : walk ? order : std::vector<int>{}) {
         if (used[node]) continue;
         path = {node};
         if (next_hits(node).empty()) {
@@ -190,7 +195,7 @@ Tracks cc_and_bestpred_walk(int num_nodes, const std::vector<int64_t>& src,
             continue;
         }
         best.clear();
-        walk(walk);
+        walk_from(walk_from);
         for (int h : best) used[h] = 1;
         out.walk.push_back(best);
     }
@@ -198,6 +203,84 @@ Tracks cc_and_bestpred_walk(int num_nodes, const std::vector<int64_t>& src,
 
     out.cc = post_filter(std::move(out.cc), edges, num_nodes, min_track_score, min_track_hits);
     out.walk = post_filter(std::move(out.walk), edges, num_nodes, min_track_score, min_track_hits);
+    return out;
+}
+
+Tracks cc_and_junction_removal(int num_nodes, const std::vector<int64_t>& src,
+                               const std::vector<int64_t>& dst, const std::vector<float>& scores,
+                               float cc_cut, float junction_cut, int min_chain_length,
+                               float min_track_score, int min_track_hits) {
+    check_edges(num_nodes, src, dst, scores);
+    const size_t m = src.size();
+
+    // components of the edges above cc_cut; repeated edges count in the degrees
+    std::vector<int> indeg(num_nodes, 0), outdeg(num_nodes, 0), parent(num_nodes);
+    std::iota(parent.begin(), parent.end(), 0);
+    for (size_t i = 0; i < m; ++i) {
+        if (!(scores[i] > cc_cut)) continue;
+        ++outdeg[src[i]];
+        ++indeg[dst[i]];
+        parent[find_root(parent, src[i])] = find_root(parent, dst[i]);
+    }
+    std::vector<int> comp(num_nodes), size(num_nodes, 0);
+    std::vector<char> bad(num_nodes, 0);
+    for (int v = 0; v < num_nodes; ++v) ++size[comp[v] = find_root(parent, v)];
+    for (int v = 0; v < num_nodes; ++v)
+        if (indeg[v] > 1 || outdeg[v] > 1 || size[comp[v]] < min_chain_length) bad[comp[v]] = 1;
+
+    auto group = [&](const std::vector<int>& label, size_t min_size) {
+        std::unordered_map<int, size_t> index;
+        std::vector<std::vector<int>> groups;
+        for (int v = 0; v < num_nodes; ++v) {
+            if (label[v] < 0) continue;
+            auto [it, inserted] = index.try_emplace(label[v], groups.size());
+            if (inserted) groups.emplace_back();
+            groups[it->second].push_back(v);
+        }
+        std::vector<std::vector<int>> out;
+        for (auto& g : groups)
+            if (g.size() >= min_size) out.push_back(std::move(g));
+        return out;
+    };
+
+    std::vector<int> chain(num_nodes);
+    for (int v = 0; v < num_nodes; ++v) chain[v] = bad[comp[v]] ? -1 : comp[v];
+
+    // on the other hits: edges above junction_cut that are the best in and best out
+    std::vector<int64_t> best_in(num_nodes, -1), best_out(num_nodes, -1);
+    for (size_t i = 0; i < m; ++i) {
+        if (!(scores[i] > junction_cut) || chain[src[i]] >= 0 || chain[dst[i]] >= 0) continue;
+        if (best_in[dst[i]] < 0 || scores[i] > scores[best_in[dst[i]]]) best_in[dst[i]] = i;
+        if (best_out[src[i]] < 0 || scores[i] > scores[best_out[src[i]]]) best_out[src[i]] = i;
+    }
+    std::iota(parent.begin(), parent.end(), 0);
+    for (int v = 0; v < num_nodes; ++v) {
+        const int64_t i = best_in[v];
+        if (i >= 0 && best_out[src[i]] == i)
+            parent[find_root(parent, src[i])] = find_root(parent, dst[i]);
+    }
+    std::vector<int> junction(num_nodes);
+    for (int v = 0; v < num_nodes; ++v) junction[v] = chain[v] >= 0 ? -1 : find_root(parent, v);
+
+    // edges for the post-filter: above the lower cut, first position, last score
+    std::vector<Edge> edges;
+    if (min_track_score > 0.f) {
+        const float cut = std::min(cc_cut, junction_cut);
+        std::unordered_map<int64_t, size_t> seen;
+        for (size_t i = 0; i < m; ++i) {
+            auto [it, inserted] = seen.try_emplace(src[i] * num_nodes + dst[i], edges.size());
+            if (inserted)
+                edges.push_back({static_cast<int>(src[i]), static_cast<int>(dst[i]), scores[i]});
+            else
+                edges[it->second].score = scores[i];
+        }
+        edges.erase(std::remove_if(edges.begin(), edges.end(),
+                                   [&](const Edge& e) { return !(e.score > cut); }),
+                    edges.end());
+    }
+    Tracks out;
+    out.cc = post_filter(group(chain, 2), edges, num_nodes, min_track_score, min_track_hits);
+    out.walk = post_filter(group(junction, 2), edges, num_nodes, min_track_score, min_track_hits);
     return out;
 }
 
